@@ -14,7 +14,7 @@ jobs:
       uses: JackMcKew/pyinstaller-action-windows@main
       with:
         path: '.'
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
-        name: db-starter.exe
+        name: db-starter
         path: dist/windows
