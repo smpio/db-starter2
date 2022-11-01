@@ -1,17 +1,18 @@
-name: Build EXE
+ name: Package Application with Pyinstaller
 
 on:
   push:
     branches: [ master ]
 
-permissions:
-  contents: read
-
 jobs:
-  deploy:
-    runs-on: windows-latest
-
+  build:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: PyInstaller Windows
-      uses: JackMcKew/pyinstaller-action-windows@v0.1.2
+    - name: Package Application
+      uses: JackMcKew/pyinstaller-action-windows@main
+      with:
+        path: .
+    - uses: actions/upload-artifact@v2
+      with:
+        name: db-starter.exe
