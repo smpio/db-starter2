@@ -12,6 +12,7 @@ pvc_name = 'postgres-clone'
 snapshot_selector = 'snapshooter.smp.io/source=postgres-data'
 storage_class = 'yc-network-temp-ssd'
 deployment_name = 'postgres-clone'
+service_name = deployment_name
 
 
 def main():
@@ -25,7 +26,7 @@ def main():
 
     if is_deployment_ready():
         print('Database replica is already running')
-        input('Press ENTER when finished. Database will be terminated')
+        usage()
         return
 
     snapshots = custom_api.list_namespaced_custom_object(
@@ -91,7 +92,7 @@ def main():
 
     print('')
     print('Give a minute to initialize and you will be able to connect to the database')
-    input('Press ENTER when finished. Database will be terminated')
+    usage()
 
 
 def cleanup():
@@ -114,6 +115,12 @@ def is_deployment_ready():
     apps_api = kubernetes.client.AppsV1Api()
     deployment = apps_api.read_namespaced_deployment(deployment_name, namespace)
     return deployment.status.ready_replicas == 1
+
+
+def usage():
+    print('Use the following command to access the database. Postgres port 5432 will be forwarded to your localhost.')
+    print(f'kubectl -n {namespace} port-forward service/{service_name} 5432:5432')
+    input('Press ENTER when finished. Database will be terminated')
 
 
 class IgnoreNotExist(contextlib.AbstractContextManager):
