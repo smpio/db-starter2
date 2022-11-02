@@ -8,11 +8,11 @@ import kubernetes
 
 
 namespace = 'smmplanner-prd'
-pvc_name = 'postgres-clone'
+pvc_name = 'data-postgres-clone-0'
 snapshot_selector = 'snapshooter.smp.io/source=postgres-data'
 storage_class = 'yc-network-temp-ssd'
-deployment_name = 'postgres-clone'
-service_name = deployment_name
+stateful_set_name = 'postgres-clone'
+service_name = stateful_set_name
 
 
 def main():
@@ -24,7 +24,7 @@ def main():
     print(f'Namespace: {namespace}')
     atexit.register(cleanup)
 
-    if is_deployment_ready():
+    if is_pod_ready():
         print('Database replica is already running')
         usage()
         return
@@ -75,20 +75,20 @@ def main():
 
     print(f'Created PVC {pvc_name}')
 
-    apps_api.patch_namespaced_deployment_scale(deployment_name, namespace, {
+    apps_api.patch_namespaced_stateful_set_scale(stateful_set_name, namespace, {
         'spec': {
             'replicas': 1,
         },
     })
-    print(f'Scaled deployment {deployment_name} to 1 replica')
+    print(f'Scaled StatefulSet {stateful_set_name} to 1 replica')
     print('Current local time:', datetime.datetime.now())
 
     ready = False
-    print('Waiting for deployment to start-up (about 15 minutes)..', end='')
+    print('Waiting for pod to start-up (about 15 minutes)..', end='')
     while not ready:
         time.sleep(30)
         print('.', end='')
-        ready = is_deployment_ready()
+        ready = is_pod_ready()
 
     print('')
     print('Give a minute to initialize and you will be able to connect to the database')
@@ -99,22 +99,22 @@ def cleanup():
     core_api = kubernetes.client.CoreV1Api()
     apps_api = kubernetes.client.AppsV1Api()
 
-    apps_api.patch_namespaced_deployment_scale(deployment_name, namespace, {
+    apps_api.patch_namespaced_stateful_set_scale(stateful_set_name, namespace, {
         'spec': {
             'replicas': 0,
         },
     })
-    print(f'Scaled deployment {deployment_name} to 0 replicas')
+    print(f'Scaled StatefulSet {stateful_set_name} to 0 replicas')
 
     with IgnoreNotExist():
         core_api.delete_namespaced_persistent_volume_claim(pvc_name, namespace)
         print(f'Removed PVC {pvc_name}')
 
 
-def is_deployment_ready():
+def is_pod_ready():
     apps_api = kubernetes.client.AppsV1Api()
-    deployment = apps_api.read_namespaced_deployment(deployment_name, namespace)
-    return deployment.status.ready_replicas == 1
+    stateful_set = apps_api.read_namespaced_stateful_set(stateful_set_name, namespace)
+    return stateful_set.status.ready_replicas == 1
 
 
 def usage():
@@ -134,3 +134,6 @@ class IgnoreNotExist(contextlib.AbstractContextManager):
 
 if __name__ == '__main__':
     main()
+
+# role
+# networkpolicy
