@@ -81,7 +81,7 @@ def main():
         },
     })
     print(f'Scaled StatefulSet {stateful_set_name} to 1 replica')
-    print('Current local time:', datetime.datetime.now())
+    pod_created_at = datetime.datetime.now()
 
     ready = False
     print('Waiting for pod to start-up (about 15 minutes)..', end='')
@@ -90,12 +90,17 @@ def main():
         print('.', end='')
         ready = is_pod_ready()
 
+    startup_time = datetime.datetime.now() - pod_created_at
+
     print('')
+    print(f'{startup_time} elapsed')
     print('Give a minute to initialize and you will be able to connect to the database')
     usage()
 
 
 def cleanup():
+    print('Terminating...')
+
     core_api = kubernetes.client.CoreV1Api()
     apps_api = kubernetes.client.AppsV1Api()
 
