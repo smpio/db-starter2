@@ -1,6 +1,5 @@
 import sys
 import time
-import atexit
 import datetime
 import contextlib
 
@@ -9,7 +8,8 @@ import kubernetes
 
 namespace = 'smmplanner-prd'
 pvc_name = 'data-postgres-clone-0'
-snapshot_selector = 'snapshooter.smp.io/source=postgres-data'
+temp_pod_name = 'postgres-clone-tmp'
+snapshot_selector = 'snapshooter.smp.io/source=postgres-2'
 storage_class = 'yc-network-temp-ssd'
 stateful_set_name = 'postgres-clone'
 service_name = stateful_set_name
@@ -22,16 +22,16 @@ def main():
     apps_api = kubernetes.client.AppsV1Api()
 
     print(f'Namespace: {namespace}')
-    atexit.register(cleanup)
 
     if is_pod_ready():
         print('Database replica is already running')
         usage()
         return
+    cleanup()
 
     snapshots = custom_api.list_namespaced_custom_object(
         'snapshot.storage.k8s.io',
-        'v1beta1',
+        'v1',
         namespace,
         'volumesnapshots',
         label_selector=snapshot_selector,
@@ -74,6 +74,43 @@ def main():
     })
 
     print(f'Created PVC {pvc_name}')
+    pvc_created_at = datetime.datetime.now()
+
+    temp_pod = core_api.create_namespaced_pod(namespace, {
+        'metadata': {
+            'name': temp_pod_name,
+        },
+        'spec': {
+            'containers': [{
+                'name': 'main',
+                'image': 'busybox',
+                'command': ['sleep', 'infinity'],
+            }],
+            'volumes': [{
+                'name': 'data',
+                'persistentVolumeClaim': {
+                    'claimName': pvc_name,
+                },
+            }],
+            'terminationGracePeriodSeconds': 1,
+        },
+    })
+
+    # needed for binding PVC
+    print(f'Created temp Pod {temp_pod_name}')
+
+    ready = False
+    print('Waiting for PVC to be bound..', end='')
+    while not ready:
+        time.sleep(30)
+        print('.', end='')
+        ready = is_pvc_bound()
+
+    startup_time = datetime.datetime.now() - pvc_created_at
+    print(f'{startup_time} elapsed')
+
+    core_api.delete_namespaced_pod(temp_pod_name, namespace)
+    print(f'Deleted temp Pod {temp_pod_name}')
 
     apps_api.patch_namespaced_stateful_set_scale(stateful_set_name, namespace, {
         'spec': {
@@ -84,23 +121,20 @@ def main():
     pod_created_at = datetime.datetime.now()
 
     ready = False
-    print('Waiting for pod to start-up (about 15 minutes)..', end='')
+    print('Waiting for pod to start-up..', end='')
     while not ready:
         time.sleep(30)
         print('.', end='')
         ready = is_pod_ready()
 
     startup_time = datetime.datetime.now() - pod_created_at
-
-    print('')
     print(f'{startup_time} elapsed')
+
     print('Give a minute to initialize and you will be able to connect to the database')
     usage()
 
 
 def cleanup():
-    print('Terminating...')
-
     core_api = kubernetes.client.CoreV1Api()
     apps_api = kubernetes.client.AppsV1Api()
 
@@ -112,8 +146,17 @@ def cleanup():
     print(f'Scaled StatefulSet {stateful_set_name} to 0 replicas')
 
     with IgnoreNotExist():
+        core_api.delete_namespaced_pod(temp_pod_name, namespace)
+        print(f'Deleted temp Pod {temp_pod_name}')
+    with IgnoreNotExist():
         core_api.delete_namespaced_persistent_volume_claim(pvc_name, namespace)
-        print(f'Removed PVC {pvc_name}')
+        print(f'Deleted PVC {pvc_name}')
+
+
+def is_pvc_bound():
+    core_api = kubernetes.client.CoreV1Api()
+    pvc = core_api.read_namespaced_persistent_volume_claim(pvc_name, namespace)
+    return pvc.status.phase == 'Bound'
 
 
 def is_pod_ready():
@@ -125,7 +168,10 @@ def is_pod_ready():
 def usage():
     print('Use the following command to access the database. Postgres port 5432 will be forwarded to your localhost.')
     print(f'kubectl -n {namespace} port-forward service/{service_name} 5432:5432')
-    input('Press ENTER when finished. Database will be terminated')
+    answer = input('Terminate the database? (y/n)')
+    if answer.lower() == 'y':
+        print('Terminating..')
+        cleanup()
 
 
 class IgnoreNotExist(contextlib.AbstractContextManager):
@@ -140,5 +186,6 @@ class IgnoreNotExist(contextlib.AbstractContextManager):
 if __name__ == '__main__':
     main()
 
+# Provision volumes from cross-namespace snapshots
 # role
 # networkpolicy
